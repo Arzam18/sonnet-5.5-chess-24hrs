@@ -33,10 +33,10 @@ struct TransTable {
     int age = 0;
 
     void resize(size_t mb) {
-        if (table) _mm_free(table);
+        if (table) alignedFree(table);
         nClusters = (mb * 1024 * 1024) / sizeof(TTCluster);
         if (nClusters < 1) nClusters = 1;
-        table = (TTCluster*)_mm_malloc(nClusters * sizeof(TTCluster), 64);
+        table = (TTCluster*)alignedMalloc(nClusters * sizeof(TTCluster), 64);
         clear();
     }
     void clear() {
@@ -46,7 +46,7 @@ struct TransTable {
     inline TTCluster* cluster(U64 key) const {
         return &table[(unsigned __int128)key * nClusters >> 64];
     }
-    inline void prefetch(U64 key) const { _mm_prefetch((const char*)cluster(key), _MM_HINT_T0); }
+    inline void prefetch(U64 key) const { prefetchRead(cluster(key)); }
     TTEntry* probe(U64 key, bool& found) {
         TTCluster* c = cluster(key);
         uint32_t k = (uint32_t)key;

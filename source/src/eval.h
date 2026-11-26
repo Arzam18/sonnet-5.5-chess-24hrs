@@ -344,6 +344,31 @@ static int nnueEval(const Position& pos) {
     int bucket = std::min(NN_B - 1, (popcount(pos.occ) - 2) / 4);
     if (bucket < 0) bucket = 0;
     const int16_t* wo = gNet->wo[bucket][0];
+#if defined(__aarch64__)
+    const int16x8_t zero = vdupq_n_s16(0), qa = vdupq_n_s16(NN_QA);
+    int32x4_t sum = vdupq_n_s32(0);
+    // Match AVX2 exactly: multiply to the low 16 bits first, then perform
+    // signed pairwise 16x16 -> 32-bit multiply-add with the clipped activation.
+    for (int i = 0; i < NN_H; i += 8) {
+        int16x8_t v = vmaxq_s16(vld1q_s16(us + i), zero);
+        v = vminq_s16(v, qa);
+        int16x8_t w = vld1q_s16(wo + i);
+        int16x8_t product = vmulq_s16(v, w);
+        int32x4_t lo = vmull_s16(vget_low_s16(product), vget_low_s16(v));
+        int32x4_t hi = vmull_s16(vget_high_s16(product), vget_high_s16(v));
+        sum = vaddq_s32(sum, vpaddq_s32(lo, hi));
+    }
+    for (int i = 0; i < NN_H; i += 8) {
+        int16x8_t v = vmaxq_s16(vld1q_s16(them + i), zero);
+        v = vminq_s16(v, qa);
+        int16x8_t w = vld1q_s16(wo + NN_H + i);
+        int16x8_t product = vmulq_s16(v, w);
+        int32x4_t lo = vmull_s16(vget_low_s16(product), vget_low_s16(v));
+        int32x4_t hi = vmull_s16(vget_high_s16(product), vget_high_s16(v));
+        sum = vaddq_s32(sum, vpaddq_s32(lo, hi));
+    }
+    int total = vaddvq_s32(sum);
+#else
     const __m256i zero = _mm256_setzero_si256(), qa = _mm256_set1_epi16(NN_QA);
     __m256i sum = zero;
     for (int i = 0; i < NN_H; i += 16) {
@@ -362,6 +387,7 @@ static int nnueEval(const Position& pos) {
     s4 = _mm_add_epi32(s4, _mm_shuffle_epi32(s4, 0x4E));
     s4 = _mm_add_epi32(s4, _mm_shuffle_epi32(s4, 0xB1));
     int total = _mm_cvtsi128_si32(s4);
+#endif
     total = total / NN_QA + gNet->b2[bucket];
     int cp = (int)((int64_t)total * NN_SCALE / (NN_QA * NN_QB));
     return std::max(-MATE_EVAL_CAP, std::min(MATE_EVAL_CAP, cp));

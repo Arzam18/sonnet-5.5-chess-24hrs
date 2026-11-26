@@ -14,7 +14,45 @@
 #include <iostream>
 #include <fstream>
 #include <cmath>
+#if defined(__aarch64__) || defined(_M_ARM64)
+#include <arm_neon.h>
+#endif
+#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
 #include <immintrin.h>
+#endif
+#if defined(_WIN32)
+#include <malloc.h>
+#endif
+
+
+// Aligned allocation and prefetch helpers shared by the x86 and ARM builds.
+inline void* alignedMalloc(size_t size, size_t alignment) {
+#if defined(_WIN32) && (defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86))
+    return _mm_malloc(size, alignment);
+#elif defined(_WIN32)
+    return _aligned_malloc(size, alignment);
+#else
+    void* ptr = nullptr;
+    if (posix_memalign(&ptr, alignment, size) != 0) return nullptr;
+    return ptr;
+#endif
+}
+inline void alignedFree(void* ptr) {
+#if defined(_WIN32) && (defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86))
+    _mm_free(ptr);
+#elif defined(_WIN32)
+    _aligned_free(ptr);
+#else
+    free(ptr);
+#endif
+}
+inline void prefetchRead(const void* ptr) {
+#if defined(__GNUC__) || defined(__clang__)
+    __builtin_prefetch(ptr, 0, 3);
+#else
+    (void)ptr;
+#endif
+}
 
 typedef uint64_t U64;
 typedef uint16_t Move;

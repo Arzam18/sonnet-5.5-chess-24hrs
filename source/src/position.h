@@ -44,12 +44,18 @@ struct Position {
 
     inline void nnRefresh(int p) {
         int16_t* a = acc[hply][p];
-        for (int i = 0; i < NN_H; i++) a[i] = gNet->b1[i];
+        memcpy(a, gNet->b1, sizeof(int16_t) * NN_H);
         int ks = lsb(byType[KING] & byColor[p]);
         for (int s = 0; s < 64; s++) {
             if (board[s] == NO_PIECE) continue;
             const int16_t* w = gNet->w1 + nnFeature(p, board[s], s, ks) * NN_H;
-            for (int i = 0; i < NN_H; i++) a[i] += w[i];
+#if defined(__aarch64__)
+            for (int i = 0; i + 8 <= NN_H; i += 8)
+                vst1q_s16(a + i, vaddq_s16(vld1q_s16(a + i), vld1q_s16(w + i)));
+            for (int i = NN_H & ~7; i < NN_H; i++) a[i] = (int16_t)(a[i] + w[i]);
+#else
+            for (int i = 0; i < NN_H; i++) a[i] = (int16_t)(a[i] + w[i]);
+#endif
         }
     }
     void refreshAcc() { nnRefresh(0); nnRefresh(1); }
@@ -66,14 +72,41 @@ struct Position {
             const int16_t* a0 = gNet->w1 + nnFeature(p, addPc[0], addSq[0], ks) * NN_H;
             const int16_t* s0 = gNet->w1 + nnFeature(p, subPc[0], subSq[0], ks) * NN_H;
             if (na == 1 && ns == 1) {
-                for (int i = 0; i < NN_H; i++) dst[i] = src[i] + a0[i] - s0[i];
+#if defined(__aarch64__)
+                for (int i = 0; i + 8 <= NN_H; i += 8)
+                    vst1q_s16(dst + i, vsubq_s16(vaddq_s16(vld1q_s16(src + i), vld1q_s16(a0 + i)), vld1q_s16(s0 + i)));
+                for (int i = NN_H & ~7; i < NN_H; i++) dst[i] = (int16_t)(src[i] + a0[i] - s0[i]);
+#else
+                for (int i = 0; i < NN_H; i++) dst[i] = (int16_t)(src[i] + a0[i] - s0[i]);
+#endif
             } else if (na == 1) {
                 const int16_t* s1 = gNet->w1 + nnFeature(p, subPc[1], subSq[1], ks) * NN_H;
-                for (int i = 0; i < NN_H; i++) dst[i] = src[i] + a0[i] - s0[i] - s1[i];
+#if defined(__aarch64__)
+                for (int i = 0; i + 8 <= NN_H; i += 8) {
+                    int16x8_t v = vaddq_s16(vld1q_s16(src + i), vld1q_s16(a0 + i));
+                    v = vsubq_s16(v, vld1q_s16(s0 + i));
+                    v = vsubq_s16(v, vld1q_s16(s1 + i));
+                    vst1q_s16(dst + i, v);
+                }
+                for (int i = NN_H & ~7; i < NN_H; i++) dst[i] = (int16_t)(src[i] + a0[i] - s0[i] - s1[i]);
+#else
+                for (int i = 0; i < NN_H; i++) dst[i] = (int16_t)(src[i] + a0[i] - s0[i] - s1[i]);
+#endif
             } else {
                 const int16_t* a1 = gNet->w1 + nnFeature(p, addPc[1], addSq[1], ks) * NN_H;
                 const int16_t* s1 = gNet->w1 + nnFeature(p, subPc[1], subSq[1], ks) * NN_H;
-                for (int i = 0; i < NN_H; i++) dst[i] = src[i] + a0[i] + a1[i] - s0[i] - s1[i];
+#if defined(__aarch64__)
+                for (int i = 0; i + 8 <= NN_H; i += 8) {
+                    int16x8_t v = vaddq_s16(vld1q_s16(src + i), vld1q_s16(a0 + i));
+                    v = vaddq_s16(v, vld1q_s16(a1 + i));
+                    v = vsubq_s16(v, vld1q_s16(s0 + i));
+                    v = vsubq_s16(v, vld1q_s16(s1 + i));
+                    vst1q_s16(dst + i, v);
+                }
+                for (int i = NN_H & ~7; i < NN_H; i++) dst[i] = (int16_t)(src[i] + a0[i] + a1[i] - s0[i] - s1[i]);
+#else
+                for (int i = 0; i < NN_H; i++) dst[i] = (int16_t)(src[i] + a0[i] + a1[i] - s0[i] - s1[i]);
+#endif
             }
         }
     }

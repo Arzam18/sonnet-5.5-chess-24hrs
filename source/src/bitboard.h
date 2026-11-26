@@ -8,8 +8,25 @@ struct MagicEntry { U64 mask; U64* tab; };
 static MagicEntry rookM[64], bishM[64];
 static U64 attTable[107648 + 64];
 
-inline U64 rookAttacks(int s, U64 occ) { const MagicEntry& m = rookM[s]; return m.tab[_pext_u64(occ, m.mask)]; }
-inline U64 bishopAttacks(int s, U64 occ) { const MagicEntry& m = bishM[s]; return m.tab[_pext_u64(occ, m.mask)]; }
+// BMI2 PEXT is retained on x86 when enabled. ARM64 uses the portable bit-extract
+// fallback, preserving the exact table indices without changing attack semantics.
+inline U64 pext64(U64 value, U64 mask) {
+#if defined(__BMI2__)
+    return _pext_u64(value, mask);
+#else
+    U64 result = 0;
+    unsigned outBit = 0;
+    while (mask) {
+        const U64 bit = mask & (~mask + 1);
+        result |= ((value & bit) != 0) ? (U64(1) << outBit) : 0;
+        mask &= mask - 1;
+        ++outBit;
+    }
+    return result;
+#endif
+}
+inline U64 rookAttacks(int s, U64 occ) { const MagicEntry& m = rookM[s]; return m.tab[pext64(occ, m.mask)]; }
+inline U64 bishopAttacks(int s, U64 occ) { const MagicEntry& m = bishM[s]; return m.tab[pext64(occ, m.mask)]; }
 inline U64 queenAttacks(int s, U64 occ) { return rookAttacks(s, occ) | bishopAttacks(s, occ); }
 
 static U64 slideSlow(int sq, U64 occ, const int dirs[4][2]) {
@@ -65,14 +82,14 @@ static void initBitboards() {
         MagicEntry& m = rookM[s];
         m.mask = maskSlow(s, rd); m.tab = p;
         U64 sub = 0;
-        do { m.tab[_pext_u64(sub, m.mask)] = slideSlow(s, sub, rd); sub = (sub - m.mask) & m.mask; } while (sub);
+        do { m.tab[pext64(sub, m.mask)] = slideSlow(s, sub, rd); sub = (sub - m.mask) & m.mask; } while (sub);
         p += 1ULL << popcount(m.mask);
     }
     for (int s = 0; s < 64; s++) {
         MagicEntry& m = bishM[s];
         m.mask = maskSlow(s, bd); m.tab = p;
         U64 sub = 0;
-        do { m.tab[_pext_u64(sub, m.mask)] = slideSlow(s, sub, bd); sub = (sub - m.mask) & m.mask; } while (sub);
+        do { m.tab[pext64(sub, m.mask)] = slideSlow(s, sub, bd); sub = (sub - m.mask) & m.mask; } while (sub);
         p += 1ULL << popcount(m.mask);
     }
     for (int a = 0; a < 64; a++)

@@ -33,7 +33,7 @@ static bool nnueLoadBuffer(const unsigned char* p, size_t n) {
     int32_t h[3];
     memcpy(h, p + 4, 12);
     if (h[0] != (NN_KB | (NN_QB << 8)) || h[1] != NN_H || h[2] != NN_B) return false;
-    if (!gNet) gNet = (NNUENet*)_mm_malloc(sizeof(NNUENet), 64);
+    if (!gNet) gNet = (NNUENet*)alignedMalloc(sizeof(NNUENet), 64);
     const unsigned char* q = p + hdr;
     memcpy(gNet->w1, q, sizeof(int16_t) * NN_NF * NN_H); q += sizeof(int16_t) * NN_NF * NN_H;
     memcpy(gNet->b1, q, sizeof(int16_t) * NN_H); q += sizeof(int16_t) * NN_H;
