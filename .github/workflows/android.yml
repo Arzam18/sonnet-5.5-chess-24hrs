@@ -1,0 +1,69 @@
+name: Build Sonnet 5.5 Android ARM64 (NEON)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'source/src/**'
+      - 'source/nets/n8a.nnue'
+      - 'Makefile'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'source/src/**'
+      - 'source/nets/n8a.nnue'
+      - 'Makefile'
+      - '.github/workflows/android.yml'
+
+jobs:
+  build:
+    name: Android ARM64 NEON
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+          packages: platform-tools
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager --install "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Verify Android toolchain and NNUE
+        run: |
+          test -x "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++"
+          python3 - <<'PY'
+          import pathlib, struct
+          p = pathlib.Path("source/nets/n8a.nnue")
+          data = p.read_bytes()
+          assert len(data) >= 16, "NNUE file is truncated"
+          magic, kb_qb, hidden, buckets = struct.unpack("<4siii", data[:16])
+          assert (magic, kb_qb, hidden, buckets) == (b"SNNU", 0x8001, 256, 8), "Unexpected Sonnet NNUE header"
+          expected = 16 + 2 * (768 * 256 + 256 + 8 * 2 * 256) + 4 * 8
+          assert len(data) == expected, f"NNUE size mismatch: {len(data)} != {expected}"
+          print(f"Verified n8a.nnue: {len(data)} bytes; NN_KB=1, NN_H=256, NN_B=8, QB=128")
+          PY
+          sha256sum source/nets/n8a.nnue
+
+      - name: Build Android ARM64 NEON engine
+        run: make android-arm64
+
+      - name: Verify Android executable
+        run: |
+          test -s release/Sonnet55chess24hrs-arm64-android-neon
+          file release/Sonnet55chess24hrs-arm64-android-neon
+          readelf -h release/Sonnet55chess24hrs-arm64-android-neon | grep -E 'Class:|Machine:|Type:'
+          readelf -d release/Sonnet55chess24hrs-arm64-android-neon | grep NEEDED || true
+
+      - name: Upload Android ARM64 engine
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sonnet55-Android-ARM64-NEON
+          path: release/Sonnet55chess24hrs-arm64-android-neon
+          if-no-files-found: error
