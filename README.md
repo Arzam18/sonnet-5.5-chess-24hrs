@@ -39,6 +39,17 @@ bash source/make_final.sh source/nets/n8a.nnue
 The result links only against `KERNEL32.dll` and `msvcrt.dll`; it was checked to start and play from a `cmd.exe` whose PATH
 contained nothing but System32.
 
+### Android ARM64 (NEON)
+
+The Android build is a separate target and leaves the original x86-64-v3 build scripts unchanged:
+
+```sh
+# With ANDROID_NDK_HOME pointing to an installed Android NDK (r27.2 recommended)
+make android-arm64
+```
+
+This creates `release/Sonnet55chess24hrs-arm64-android-neon`, an AArch64 Android UCI executable with the trained `n8a.nnue` embedded. The ARM64 path uses NEON for NNUE inference and accumulator updates, plus a portable software PEXT implementation for sliding-attack table indexing. The original BMI2 PEXT and AVX2 paths remain available to x86 builds. DotProd is not enabled: the network uses 16-bit weights/activations, while SDOT/UDOT operate on 8-bit lanes and are not a bit-equivalent drop-in for the current inference arithmetic.
+
 ### Running / UCI
 
 Standard UCI (`uci`, `isready`, `ucinewgame`, `setoption`, `position`, `go wtime/btime/winc/binc/movestogo/movetime/depth/nodes/infinite`,
